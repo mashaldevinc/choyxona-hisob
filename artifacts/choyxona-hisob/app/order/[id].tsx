@@ -5,7 +5,9 @@ import React, { useMemo, useState } from 'react';
 import {
   Alert,
   FlatList,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -21,6 +23,111 @@ import { OrderItem, TemplateItem } from '@/types';
 import { formatMoney, generateId } from '@/utils/formatting';
 import { calcOrderItemSubtotal } from '@/utils/calculations';
 
+// Unit step sizes
+function getStep(unit: string) {
+  if (unit === 'kg') return 0.1;
+  if (unit === 'gr') return 50;
+  return 1; // dona
+}
+
+function formatQty(qty: number, unit: string): string {
+  if (unit === 'kg') return qty.toFixed(1);
+  if (unit === 'gr') return String(Math.round(qty));
+  return String(Math.round(qty));
+}
+
+// Big +/- stepper component used in both modal and order cards
+function QtyStepper({
+  value,
+  unit,
+  onChange,
+  large = false,
+  colors,
+}: {
+  value: number;
+  unit: string;
+  onChange: (val: number) => void;
+  large?: boolean;
+  colors: ReturnType<typeof useColors>;
+}) {
+  const step = getStep(unit);
+  const btnSize = large ? 52 : 36;
+  const fontSize = large ? 22 : 16;
+
+  function decrement() {
+    const next = Math.max(step, parseFloat((value - step).toFixed(3)));
+    onChange(next);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }
+  function increment() {
+    const next = parseFloat((value + step).toFixed(3));
+    onChange(next);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }
+
+  return (
+    <View style={[stepperStyles.row, large && stepperStyles.rowLarge]}>
+      <TouchableOpacity
+        onPress={decrement}
+        style={[
+          stepperStyles.btn,
+          {
+            width: btnSize,
+            height: btnSize,
+            borderRadius: large ? 14 : 10,
+            backgroundColor: colors.secondary,
+            borderColor: colors.border,
+          },
+        ]}
+        activeOpacity={0.7}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      >
+        <Feather name="minus" size={large ? 20 : 16} color={colors.foreground} />
+      </TouchableOpacity>
+
+      <View style={[stepperStyles.valueBox, large && stepperStyles.valueBoxLarge, { borderColor: colors.border, backgroundColor: colors.background }]}>
+        <Text style={[stepperStyles.value, { fontSize, color: colors.foreground, fontFamily: 'Inter_700Bold' }]}>
+          {formatQty(value, unit)}
+        </Text>
+        <Text style={[stepperStyles.unit, { color: colors.mutedForeground, fontFamily: 'Inter_500Medium', fontSize: large ? 13 : 11 }]}>
+          {unit}
+        </Text>
+      </View>
+
+      <TouchableOpacity
+        onPress={increment}
+        style={[
+          stepperStyles.btn,
+          {
+            width: btnSize,
+            height: btnSize,
+            borderRadius: large ? 14 : 10,
+            backgroundColor: colors.primary,
+            borderColor: colors.primary,
+          },
+        ]}
+        activeOpacity={0.7}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      >
+        <Feather name="plus" size={large ? 20 : 16} color="#fff" />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+const stepperStyles = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  rowLarge: { gap: 12 },
+  btn: { alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
+  valueBox: {
+    minWidth: 72, height: 36, borderWidth: 1, borderRadius: 10,
+    alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8,
+  },
+  valueBoxLarge: { minWidth: 100, height: 52, borderRadius: 14 },
+  value: { textAlign: 'center' },
+  unit: { textAlign: 'center', marginTop: 1 },
+});
+
 export default function OrderScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useColors();
@@ -33,7 +140,7 @@ export default function OrderScreen() {
   const [showProductModal, setShowProductModal] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateItem | null>(null);
   const [selectedVariant, setSelectedVariant] = useState('');
-  const [qty, setQty] = useState('1');
+  const [modalQty, setModalQty] = useState(1);
   const [search, setSearch] = useState('');
 
   const serviceTotal = (session?.guestCount ?? 0) * (profile?.servicePrice ?? 0);
@@ -48,7 +155,7 @@ export default function OrderScreen() {
   function openAddProduct() {
     setSelectedTemplate(null);
     setSelectedVariant('');
-    setQty('1');
+    setModalQty(1);
     setSearch('');
     setShowProductModal(true);
   }
@@ -56,38 +163,38 @@ export default function OrderScreen() {
   function selectTemplate(t: TemplateItem) {
     setSelectedTemplate(t);
     setSelectedVariant(t.variants[0] ?? '');
-    setQty('1');
+    setModalQty(getStep(t.unit));
   }
 
   function confirmAdd() {
     if (!selectedTemplate) return;
-    const qtyNum = parseFloat(qty);
-    if (isNaN(qtyNum) || qtyNum <= 0) {
+    if (modalQty <= 0) {
       Alert.alert('Xato', "Miqdorni kiriting");
       return;
     }
-    const subtotal = calcOrderItemSubtotal(selectedTemplate.unit, qtyNum, selectedTemplate.basePrice);
+    const subtotal = calcOrderItemSubtotal(selectedTemplate.unit, modalQty, selectedTemplate.basePrice);
     const item: OrderItem = {
       id: generateId(),
       templateId: selectedTemplate.id,
       name: selectedTemplate.name,
       variant: selectedVariant || undefined,
       unit: selectedTemplate.unit,
-      qtyOrWeight: qtyNum,
+      qtyOrWeight: modalQty,
       unitPrice: selectedTemplate.basePrice,
       subtotal,
       isFree: selectedTemplate.priceStatus === 'bonus',
       isDelivered: false,
     };
     addOrder(id, item);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setShowProductModal(false);
   }
 
   function handleQtyChange(itemId: string, delta: number) {
     const item = orders.find((o) => o.id === itemId);
     if (!item) return;
-    const newQty = Math.max(0.1, item.qtyOrWeight + delta);
+    const step = getStep(item.unit);
+    const newQty = Math.max(step, parseFloat((item.qtyOrWeight + delta * step).toFixed(3)));
     const newSubtotal = calcOrderItemSubtotal(item.unit, newQty, item.unitPrice);
     updateOrder(id, { ...item, qtyOrWeight: newQty, subtotal: newSubtotal });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -126,7 +233,7 @@ export default function OrderScreen() {
         data={orders}
         keyExtractor={(o) => o.id}
         contentContainerStyle={{ padding: 16, gap: 8, paddingBottom: 160 }}
-        scrollEnabled={!!orders.length}
+        scrollEnabled
         ListHeaderComponent={
           orders.length === 0 ? null : (
             <View style={[styles.serviceRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -151,6 +258,7 @@ export default function OrderScreen() {
         }
         renderItem={({ item }) => (
           <View style={[styles.orderCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            {/* Top row: name + delivered toggle */}
             <View style={styles.orderTop}>
               <View style={{ flex: 1 }}>
                 <View style={styles.orderNameRow}>
@@ -168,38 +276,45 @@ export default function OrderScreen() {
                 </Text>
               </View>
               <TouchableOpacity
-                style={[styles.deliveredBtn, item.isDelivered && { backgroundColor: colors.success }]}
-                onPress={() => { toggleDelivered(id, item.id); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                style={[
+                  styles.deliveredBtn,
+                  { backgroundColor: item.isDelivered ? colors.success : colors.muted },
+                ]}
+                onPress={() => {
+                  toggleDelivered(id, item.id);
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }}
               >
-                <Feather name={item.isDelivered ? 'check' : 'clock'} size={13} color={item.isDelivered ? '#fff' : colors.warning} />
+                <Feather
+                  name={item.isDelivered ? 'check' : 'clock'}
+                  size={13}
+                  color={item.isDelivered ? '#fff' : colors.warning}
+                />
                 <Text style={[styles.deliveredText, { color: item.isDelivered ? '#fff' : colors.warning }]}>
                   {item.isDelivered ? 'Yetkazildi' : 'Kutilmoqda'}
                 </Text>
               </TouchableOpacity>
             </View>
 
+            {/* Bottom row: stepper (ALL units) + subtotal + delete */}
             <View style={styles.orderBottom}>
-              {item.unit === 'dona' ? (
-                <View style={styles.qtyRow}>
-                  <TouchableOpacity style={[styles.qtyBtn, { backgroundColor: colors.secondary }]} onPress={() => handleQtyChange(item.id, -1)}>
-                    <Feather name="minus" size={14} color={colors.foreground} />
-                  </TouchableOpacity>
-                  <Text style={[styles.qtyText, { color: colors.foreground }]}>{item.qtyOrWeight}</Text>
-                  <TouchableOpacity style={[styles.qtyBtn, { backgroundColor: colors.secondary }]} onPress={() => handleQtyChange(item.id, 1)}>
-                    <Feather name="plus" size={14} color={colors.foreground} />
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <Text style={[styles.weightText, { color: colors.foreground }]}>
-                  {item.qtyOrWeight} {item.unit}
+              <QtyStepper
+                value={item.qtyOrWeight}
+                unit={item.unit}
+                colors={colors}
+                onChange={(newQty) => {
+                  const newSubtotal = calcOrderItemSubtotal(item.unit, newQty, item.unitPrice);
+                  updateOrder(id, { ...item, qtyOrWeight: newQty, subtotal: newSubtotal });
+                }}
+              />
+              <View style={styles.bottomRight}>
+                <Text style={[styles.subtotalText, { color: colors.foreground }]}>
+                  {item.isFree ? 'Bepul' : formatMoney(item.subtotal)}
                 </Text>
-              )}
-              <Text style={[styles.subtotalText, { color: colors.foreground }]}>
-                {item.isFree ? "Bepul" : formatMoney(item.subtotal)}
-              </Text>
-              <TouchableOpacity onPress={() => handleRemove(item.id)} style={styles.removeBtn}>
-                <Feather name="trash-2" size={15} color={colors.destructive} />
-              </TouchableOpacity>
+                <TouchableOpacity onPress={() => handleRemove(item.id)} style={styles.removeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Feather name="trash-2" size={16} color={colors.destructive} />
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         )}
@@ -226,99 +341,120 @@ export default function OrderScreen() {
 
       {/* Product selection modal */}
       <Modal visible={showProductModal} transparent animationType="slide">
-        <Pressable style={styles.backdrop} onPress={() => setShowProductModal(false)} />
-        <View style={[styles.modal, { backgroundColor: colors.card, paddingBottom: insets.bottom + 20 }]}>
-          <View style={[styles.modalHandle, { backgroundColor: colors.border }]} />
-          <Text style={[styles.modalTitle, { color: colors.foreground }]}>Mahsulot tanlang</Text>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <Pressable style={styles.backdrop} onPress={() => setShowProductModal(false)} />
+          <View
+            style={[
+              styles.modal,
+              {
+                backgroundColor: colors.card,
+                paddingBottom: Math.max(insets.bottom + 24, 40),
+              },
+            ]}
+          >
+            <View style={[styles.modalHandle, { backgroundColor: colors.border }]} />
+            <Text style={[styles.modalTitle, { color: colors.foreground }]}>Mahsulot tanlang</Text>
 
-          <TextInput
-            style={[styles.searchInput, { borderColor: colors.border, backgroundColor: colors.background, color: colors.foreground }]}
-            placeholder="Qidirish..."
-            placeholderTextColor={colors.mutedForeground}
-            value={search}
-            onChangeText={setSearch}
-          />
+            <TextInput
+              style={[styles.searchInput, { borderColor: colors.border, backgroundColor: colors.background, color: colors.foreground }]}
+              placeholder="Qidirish..."
+              placeholderTextColor={colors.mutedForeground}
+              value={search}
+              onChangeText={setSearch}
+            />
 
-          {!selectedTemplate ? (
-            <ScrollView style={{ maxHeight: 280 }} showsVerticalScrollIndicator={false}>
-              {filteredTemplates.map((t) => (
-                <TouchableOpacity
-                  key={t.id}
-                  style={[styles.templateRow, { borderBottomColor: colors.border }]}
-                  onPress={() => selectTemplate(t)}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.templateName, { color: colors.foreground }]}>{t.name}</Text>
-                    <Text style={[styles.templatePrice, { color: colors.mutedForeground }]}>
-                      {t.priceStatus === 'bonus' ? 'Bepul' : formatMoney(t.basePrice)} / {t.unit}
+            {!selectedTemplate ? (
+              <ScrollView style={{ maxHeight: 300 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                {filteredTemplates.map((t) => (
+                  <TouchableOpacity
+                    key={t.id}
+                    style={[styles.templateRow, { borderBottomColor: colors.border }]}
+                    onPress={() => selectTemplate(t)}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.templateName, { color: colors.foreground }]}>{t.name}</Text>
+                      <Text style={[styles.templatePrice, { color: colors.mutedForeground }]}>
+                        {t.priceStatus === 'bonus' ? 'Bepul' : formatMoney(t.basePrice)} / {t.unit}
+                      </Text>
+                    </View>
+                    <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
+                  </TouchableOpacity>
+                ))}
+                {filteredTemplates.length === 0 && (
+                  <Text style={[styles.noItems, { color: colors.mutedForeground }]}>Mahsulot topilmadi</Text>
+                )}
+              </ScrollView>
+            ) : (
+              <View style={{ gap: 16 }}>
+                {/* Back + product name */}
+                <TouchableOpacity onPress={() => setSelectedTemplate(null)} style={styles.backRow}>
+                  <Feather name="arrow-left" size={14} color={colors.primary} />
+                  <Text style={[styles.backText, { color: colors.primary }]}>{selectedTemplate.name}</Text>
+                </TouchableOpacity>
+
+                {/* Variant chips */}
+                {selectedTemplate.variants.length > 0 && (
+                  <View>
+                    <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Tur tanlang</Text>
+                    <View style={[styles.variantRow, { marginTop: 8 }]}>
+                      {selectedTemplate.variants.map((v) => (
+                        <TouchableOpacity
+                          key={v}
+                          style={[
+                            styles.variantChip,
+                            { borderColor: colors.border, backgroundColor: colors.background },
+                            selectedVariant === v && { backgroundColor: colors.primary, borderColor: colors.primary },
+                          ]}
+                          onPress={() => setSelectedVariant(v)}
+                        >
+                          <Text style={[styles.variantText, { color: colors.foreground }, selectedVariant === v && { color: '#fff' }]}>
+                            {v}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                )}
+
+                {/* Qty stepper — large version, always +/- for any unit */}
+                <View>
+                  <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>
+                    {selectedTemplate.unit === 'dona' ? 'Soni' : selectedTemplate.unit === 'kg' ? 'Kilogram' : 'Gramm'}
+                  </Text>
+                  <View style={[styles.stepperWrap]}>
+                    <QtyStepper
+                      value={modalQty}
+                      unit={selectedTemplate.unit}
+                      onChange={setModalQty}
+                      large
+                      colors={colors}
+                    />
+                  </View>
+                </View>
+
+                {/* Price preview */}
+                {selectedTemplate.priceStatus === 'pullik' && (
+                  <View style={[styles.pricePreview, { backgroundColor: colors.secondary }]}>
+                    <Feather name="tag" size={14} color={colors.primary} />
+                    <Text style={[styles.pricePreviewText, { color: colors.foreground }]}>
+                      {formatMoney(calcOrderItemSubtotal(selectedTemplate.unit, modalQty, selectedTemplate.basePrice))}
                     </Text>
                   </View>
-                  <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
-                </TouchableOpacity>
-              ))}
-              {filteredTemplates.length === 0 && (
-                <Text style={[styles.noItems, { color: colors.mutedForeground }]}>Mahsulot topilmadi</Text>
-              )}
-            </ScrollView>
-          ) : (
-            <View style={{ gap: 12 }}>
-              <TouchableOpacity onPress={() => setSelectedTemplate(null)} style={styles.backRow}>
-                <Feather name="arrow-left" size={14} color={colors.primary} />
-                <Text style={[styles.backText, { color: colors.primary }]}>{selectedTemplate.name}</Text>
-              </TouchableOpacity>
+                )}
 
-              {selectedTemplate.variants.length > 0 && (
-                <>
-                  <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Tur tanlang</Text>
-                  <View style={styles.variantRow}>
-                    {selectedTemplate.variants.map((v) => (
-                      <TouchableOpacity
-                        key={v}
-                        style={[
-                          styles.variantChip,
-                          { borderColor: colors.border, backgroundColor: colors.background },
-                          selectedVariant === v && { backgroundColor: colors.primary, borderColor: colors.primary },
-                        ]}
-                        onPress={() => setSelectedVariant(v)}
-                      >
-                        <Text style={[styles.variantText, { color: colors.foreground }, selectedVariant === v && { color: '#fff' }]}>{v}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </>
-              )}
-
-              <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>
-                {selectedTemplate.unit === 'dona' ? "Soni" : selectedTemplate.unit === 'kg' ? "Kilogram" : "Gramm"}
-              </Text>
-              <View style={styles.qtyInputRow}>
                 <TouchableOpacity
-                  style={[styles.qtyInputBtn, { backgroundColor: colors.secondary }]}
-                  onPress={() => setQty((q) => String(Math.max(0.1, parseFloat(q) - (selectedTemplate.unit === 'dona' ? 1 : 0.1))))}
+                  style={[styles.confirmBtn, { backgroundColor: colors.primary }]}
+                  onPress={confirmAdd}
                 >
-                  <Feather name="minus" size={16} color={colors.foreground} />
-                </TouchableOpacity>
-                <TextInput
-                  style={[styles.qtyInputField, { borderColor: colors.border, color: colors.foreground }]}
-                  value={qty}
-                  onChangeText={setQty}
-                  keyboardType="decimal-pad"
-                  textAlign="center"
-                />
-                <TouchableOpacity
-                  style={[styles.qtyInputBtn, { backgroundColor: colors.secondary }]}
-                  onPress={() => setQty((q) => String(parseFloat(q) + (selectedTemplate.unit === 'dona' ? 1 : 0.1)))}
-                >
-                  <Feather name="plus" size={16} color={colors.foreground} />
+                  <Text style={styles.confirmText}>Qo'shish</Text>
                 </TouchableOpacity>
               </View>
-
-              <TouchableOpacity style={[styles.confirmBtn, { backgroundColor: colors.primary }]} onPress={confirmAdd}>
-                <Text style={styles.confirmText}>Qo'shish</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
+            )}
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -345,7 +481,7 @@ const styles = StyleSheet.create({
   emptyIcon: { width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
   emptyTitle: { fontSize: 18, fontFamily: 'Inter_700Bold', marginBottom: 6 },
   emptyText: { fontSize: 13, fontFamily: 'Inter_400Regular', textAlign: 'center', paddingHorizontal: 40 },
-  orderCard: { borderRadius: 12, borderWidth: 1, padding: 12, gap: 10 },
+  orderCard: { borderRadius: 12, borderWidth: 1, padding: 12, gap: 12 },
   orderTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   orderNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   orderName: { fontSize: 14, fontFamily: 'Inter_600SemiBold' },
@@ -354,16 +490,15 @@ const styles = StyleSheet.create({
   orderPrice: { fontSize: 12, fontFamily: 'Inter_400Regular', marginTop: 2 },
   deliveredBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingHorizontal: 10, paddingVertical: 6,
-    borderRadius: 8, backgroundColor: 'rgba(0,0,0,0.04)',
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
   },
   deliveredText: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
-  orderBottom: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  qtyRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  qtyBtn: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  qtyText: { fontSize: 16, fontFamily: 'Inter_700Bold', minWidth: 28, textAlign: 'center' },
-  weightText: { fontSize: 14, fontFamily: 'Inter_600SemiBold' },
-  subtotalText: { flex: 1, fontSize: 15, fontFamily: 'Inter_700Bold', textAlign: 'right' },
+  orderBottom: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', gap: 8,
+  },
+  bottomRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  subtotalText: { fontSize: 15, fontFamily: 'Inter_700Bold' },
   removeBtn: { padding: 4 },
   footer: {
     flexDirection: 'row', gap: 10, padding: 16, borderTopWidth: 1,
@@ -380,8 +515,12 @@ const styles = StyleSheet.create({
   },
   checkoutText: { color: '#fff', fontSize: 16, fontFamily: 'Inter_700Bold' },
   backdrop: { flex: 1 },
-  modal: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingTop: 12, gap: 12 },
-  modalHandle: { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 8 },
+  modal: {
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    paddingHorizontal: 20, paddingTop: 12,
+    gap: 12,
+  },
+  modalHandle: { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 4 },
   modalTitle: { fontSize: 18, fontFamily: 'Inter_700Bold' },
   searchInput: {
     borderWidth: 1, borderRadius: 10,
@@ -390,23 +529,26 @@ const styles = StyleSheet.create({
   },
   templateRow: {
     flexDirection: 'row', alignItems: 'center',
-    paddingVertical: 12, borderBottomWidth: 1,
+    paddingVertical: 13, borderBottomWidth: 1,
   },
   templateName: { fontSize: 15, fontFamily: 'Inter_600SemiBold' },
   templatePrice: { fontSize: 12, fontFamily: 'Inter_400Regular', marginTop: 2 },
   noItems: { textAlign: 'center', paddingVertical: 20, fontFamily: 'Inter_400Regular' },
   backRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   backText: { fontSize: 14, fontFamily: 'Inter_600SemiBold' },
-  fieldLabel: { fontSize: 12, fontFamily: 'Inter_600SemiBold', textTransform: 'uppercase', letterSpacing: 0.5 },
-  variantRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  variantChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, borderWidth: 1 },
-  variantText: { fontSize: 13, fontFamily: 'Inter_500Medium' },
-  qtyInputRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  qtyInputBtn: { width: 44, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  qtyInputField: {
-    flex: 1, borderWidth: 1, borderRadius: 10,
-    paddingVertical: 10, fontSize: 20, fontFamily: 'Inter_700Bold',
+  fieldLabel: {
+    fontSize: 11, fontFamily: 'Inter_600SemiBold',
+    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4,
   },
-  confirmBtn: { borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
-  confirmText: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 16 },
+  variantRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  variantChip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, borderWidth: 1 },
+  variantText: { fontSize: 13, fontFamily: 'Inter_500Medium' },
+  stepperWrap: { marginTop: 8 },
+  pricePreview: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderRadius: 10, padding: 12,
+  },
+  pricePreviewText: { fontSize: 18, fontFamily: 'Inter_700Bold' },
+  confirmBtn: { borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
+  confirmText: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 17 },
 });
