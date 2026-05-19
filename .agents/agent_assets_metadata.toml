@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "2AsfREOXv15iPBjU2IzO2"
+uri = "file://artifacts/choyxona-hisob/assets/images/icon.png"
+type = "image"
+title = "choyxona app icon"
