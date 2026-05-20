@@ -4,6 +4,7 @@ export type BandlikSababi = 'mehmon' | 'bron' | 'nosoz';
 export type SessionStatus = 'active' | 'closed';
 export type DebtStatus = 'tolanmagan' | 'qisman' | 'tolangan';
 export type ExpenseCategory = 'oziq-ovqat' | 'kommunal' | 'ish-haqi' | 'ijara' | 'boshqa';
+export type QuickSalePayment = 'naqd' | 'qarz';
 
 export interface TeaHouseProfile {
   id: string;
@@ -33,6 +34,7 @@ export interface TemplateItem {
   priceStatus: PriceStatus;
   basePrice: number;
   variants: string[];
+  variantPrices: Record<string, number>; // variant -> price; falls back to basePrice
   isActive: boolean;
 }
 
@@ -121,6 +123,27 @@ export interface Note {
   createdAt: string;
 }
 
+export interface QuickSaleItem {
+  id: string;
+  templateId: string;
+  name: string;
+  variant?: string;
+  unit: UnitType;
+  qtyOrWeight: number;
+  unitPrice: number;
+  subtotal: number;
+}
+
+export interface QuickSale {
+  id: string;
+  buyerName: string;
+  items: QuickSaleItem[];
+  paymentType: QuickSalePayment;
+  total: number;
+  timestamp: string;
+  debtId?: string;
+}
+
 export interface AppState {
   profile: TeaHouseProfile | null;
   locations: LocationItem[];
@@ -131,6 +154,7 @@ export interface AppState {
   debts: DebtRecord[];
   expenses: Expense[];
   notes: Note[];
+  quickSales: QuickSale[];
   isSetupDone: boolean;
   isDarkMode: boolean;
 }

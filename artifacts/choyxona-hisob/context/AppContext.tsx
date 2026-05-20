@@ -8,6 +8,7 @@ import {
   LocationItem,
   Note,
   OrderItem,
+  QuickSale,
   Receipt,
   TemplateItem,
   TeaHouseProfile,
@@ -66,6 +67,10 @@ interface AppContextType extends AppStateType {
   addNote: (note: Note) => void;
   removeNote: (id: string) => void;
 
+  // Quick Sales
+  addQuickSale: (sale: QuickSale) => void;
+  removeQuickSale: (id: string) => void;
+
   // Theme
   toggleDarkMode: () => void;
 
@@ -86,6 +91,7 @@ const defaultState: AppStateType = {
   debts: [],
   expenses: [],
   notes: [],
+  quickSales: [],
   isSetupDone: false,
   isDarkMode: false,
 };
@@ -99,7 +105,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     loadState().then((saved) => {
-      setState((prev) => ({ ...prev, ...saved }));
+      setState((prev) => ({
+        ...prev,
+        ...saved,
+        quickSales: (saved as any).quickSales ?? [],
+      }));
       setIsLoading(false);
     });
   }, []);
@@ -372,6 +382,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [update]
   );
 
+  const addQuickSale = useCallback(
+    (sale: QuickSale) =>
+      update((p) => ({ ...p, quickSales: [sale, ...p.quickSales] })),
+    [update]
+  );
+
+  const removeQuickSale = useCallback(
+    (id: string) =>
+      update((p) => ({
+        ...p,
+        quickSales: p.quickSales.filter((s) => s.id !== id),
+      })),
+    [update]
+  );
+
   const toggleDarkMode = useCallback(
     () => update((p) => ({ ...p, isDarkMode: !p.isDarkMode })),
     [update]
@@ -391,6 +416,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           next.receipts = [];
           next.sessions = [];
           next.orders = {};
+          next.quickSales = [];
         }
         if (keys.includes('all') || keys.includes('debts')) {
           next.debts = [];
@@ -437,6 +463,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         removeExpense,
         addNote,
         removeNote,
+        addQuickSale,
+        removeQuickSale,
         toggleDarkMode,
         clearData,
         isLoading,

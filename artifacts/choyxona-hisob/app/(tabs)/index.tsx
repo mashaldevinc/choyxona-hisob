@@ -2,13 +2,12 @@ import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useMemo } from 'react';
 import {
-  Pressable,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
-  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
@@ -51,21 +50,28 @@ function QuickBtn({
   label,
   onPress,
   colors,
+  highlight,
 }: {
   icon: string;
   label: string;
   onPress: () => void;
   colors: ReturnType<typeof useColors>;
+  highlight?: boolean;
 }) {
   return (
     <TouchableOpacity
-      style={[styles.quickBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+      style={[
+        styles.quickBtn,
+        highlight
+          ? { backgroundColor: colors.primary, borderColor: colors.primary }
+          : { backgroundColor: colors.card, borderColor: colors.border },
+      ]}
       onPress={onPress}
     >
-      <View style={[styles.quickIcon, { backgroundColor: colors.secondary }]}>
-        <Feather name={icon as any} size={20} color={colors.primary} />
+      <View style={[styles.quickIcon, { backgroundColor: highlight ? 'rgba(255,255,255,0.2)' : colors.secondary }]}>
+        <Feather name={icon as any} size={20} color={highlight ? '#fff' : colors.primary} />
       </View>
-      <Text style={[styles.quickLabel, { color: colors.foreground }]}>{label}</Text>
+      <Text style={[styles.quickLabel, { color: highlight ? '#fff' : colors.foreground }]}>{label}</Text>
     </TouchableOpacity>
   );
 }
@@ -73,13 +79,15 @@ function QuickBtn({
 export default function DashboardScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { profile, sessions, receipts, expenses, debts, orders } = useApp();
+  const { profile, sessions, receipts, expenses, debts, orders, quickSales } = useApp();
   const today = todayStr();
 
   const stats = useMemo(() => {
     const todayReceipts = receipts.filter((r) => isSameDay(r.timestamp, today));
+    const todayQuickSales = (quickSales ?? []).filter((q) => isSameDay(q.timestamp, today) && q.paymentType === 'naqd');
     const todayExpenses = expenses.filter((e) => isSameDay(e.date, today));
-    const todayIncome = todayReceipts.reduce((s, r) => s + r.finalTotal, 0);
+    const todayIncome = todayReceipts.reduce((s, r) => s + r.finalTotal, 0)
+      + todayQuickSales.reduce((s, q) => s + q.total, 0);
     const todayExpense = todayExpenses.reduce((s, e) => s + e.amount, 0);
     const activeSessions = sessions.filter((s) => s.status === 'active');
     const activeDebts = debts.filter((d) => d.status !== 'tolangan');
@@ -87,7 +95,6 @@ export default function DashboardScreen() {
     const todayGuests = todayReceipts.reduce((s, r) => s + r.guestCount, 0);
     const avgCheck = todayReceipts.length > 0 ? todayIncome / todayReceipts.length : 0;
 
-    // Active order value across sessions
     const activeOrderTotal = activeSessions.reduce((sum, ses) => {
       const sessionOrders = orders[ses.id] ?? [];
       return sum + sessionOrders.reduce((s, o) => s + o.subtotal, 0);
@@ -105,7 +112,7 @@ export default function DashboardScreen() {
       activeOrderTotal,
       receiptCount: todayReceipts.length,
     };
-  }, [receipts, expenses, sessions, debts, orders, today]);
+  }, [receipts, expenses, sessions, debts, orders, quickSales, today]);
 
   return (
     <ScrollView
@@ -155,6 +162,23 @@ export default function DashboardScreen() {
         <StatCard label="O'rtacha chek" value={formatMoney(stats.avgCheck)} icon="bar-chart-2" colors={colors} />
       </View>
 
+      {/* Quick Sale CTA */}
+      <View style={[styles.saleCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.saleTitle, { color: colors.foreground }]}>Tezkor sotuv</Text>
+          <Text style={[styles.saleDesc, { color: colors.mutedForeground }]}>
+            Stol bandlamasiz mahsulot sotish
+          </Text>
+        </View>
+        <TouchableOpacity
+          style={[styles.saleBtn, { backgroundColor: colors.primary }]}
+          onPress={() => router.push('/quick-sale')}
+        >
+          <Feather name="shopping-cart" size={16} color="#fff" />
+          <Text style={styles.saleBtnText}>Sotuv qo'shish</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* Quick actions */}
       <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Tezkor o'tish</Text>
       <View style={styles.quickGrid}>
@@ -194,7 +218,7 @@ const styles = StyleSheet.create({
   mainSubText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: 'rgba(255,255,255,0.8)' },
   statsGrid: {
     flexDirection: 'row', flexWrap: 'wrap',
-    paddingHorizontal: 16, gap: 10, marginBottom: 20,
+    paddingHorizontal: 16, gap: 10, marginBottom: 16,
   },
   statCard: {
     width: '47%', borderRadius: 12, padding: 14,
@@ -206,6 +230,17 @@ const styles = StyleSheet.create({
   },
   statValue: { fontSize: 18, fontFamily: 'Inter_700Bold', marginBottom: 2 },
   statLabel: { fontSize: 11, fontFamily: 'Inter_400Regular' },
+  saleCard: {
+    marginHorizontal: 16, borderRadius: 14, borderWidth: 1,
+    padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20,
+  },
+  saleTitle: { fontSize: 15, fontFamily: 'Inter_700Bold', marginBottom: 3 },
+  saleDesc: { fontSize: 12, fontFamily: 'Inter_400Regular' },
+  saleBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10,
+  },
+  saleBtnText: { color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 13 },
   sectionTitle: {
     fontSize: 16, fontFamily: 'Inter_700Bold',
     paddingHorizontal: 20, marginBottom: 12,

@@ -4,7 +4,9 @@ import React, { useState } from 'react';
 import {
   Alert,
   FlatList,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -42,9 +44,13 @@ export default function TemplatesScreen() {
   const [prodPriceStatus, setProdPriceStatus] = useState<'pullik' | 'bonus'>('pullik');
   const [prodPrice, setProdPrice] = useState('');
   const [prodVariants, setProdVariants] = useState('');
+  const [prodVariantPrices, setProdVariantPrices] = useState<Record<string, string>>({});
 
   // Service
   const [servicePrice, setServicePrice] = useState(String(profile?.servicePrice ?? ''));
+
+  // Derived variant list
+  const variantList = prodVariants.split(',').map((v) => v.trim()).filter(Boolean);
 
   function addLocations() {
     const name = locTypeName.trim();
@@ -73,27 +79,59 @@ export default function TemplatesScreen() {
   }
 
   function openAddProd() {
-    setEditingProd(null); setProdName(''); setProdUnit('dona'); setProdPriceStatus('pullik'); setProdPrice(''); setProdVariants('');
+    setEditingProd(null);
+    setProdName(''); setProdUnit('dona'); setProdPriceStatus('pullik');
+    setProdPrice(''); setProdVariants(''); setProdVariantPrices({});
     setShowProdModal(true);
   }
 
   function openEditProd(t: TemplateItem) {
-    setEditingProd(t); setProdName(t.name); setProdUnit(t.unit); setProdPriceStatus(t.priceStatus);
-    setProdPrice(String(t.basePrice)); setProdVariants(t.variants.join(', '));
+    setEditingProd(t);
+    setProdName(t.name);
+    setProdUnit(t.unit);
+    setProdPriceStatus(t.priceStatus);
+    setProdPrice(String(t.basePrice));
+    setProdVariants(t.variants.join(', '));
+    const vp: Record<string, string> = {};
+    (t.variants ?? []).forEach((v) => {
+      if ((t.variantPrices ?? {})[v] != null) {
+        vp[v] = String(t.variantPrices[v]);
+      }
+    });
+    setProdVariantPrices(vp);
     setShowProdModal(true);
   }
 
   function saveProd() {
     if (!prodName.trim()) { Alert.alert('Xato', "Nom kiriting"); return; }
-    if (prodPriceStatus === 'pullik' && (!prodPrice || isNaN(parseFloat(prodPrice)))) { Alert.alert('Xato', "Narx kiriting"); return; }
-    const variants = prodVariants.split(',').map((v) => v.trim()).filter(Boolean);
+    if (prodPriceStatus === 'pullik' && variantList.length === 0 && (!prodPrice || isNaN(parseFloat(prodPrice)))) {
+      Alert.alert('Xato', "Narx kiriting"); return;
+    }
+
+    const variants = variantList;
+    const variantPrices: Record<string, number> = {};
+    variants.forEach((v) => {
+      const raw = prodVariantPrices[v];
+      if (raw && !isNaN(parseFloat(raw))) {
+        variantPrices[v] = parseFloat(raw);
+      }
+    });
+
+    // If variants exist but no basePrice entered, use first variant price as base
+    let base = prodPriceStatus === 'bonus' ? 0 : parseFloat(prodPrice || '0');
+    if (prodPriceStatus === 'pullik' && variants.length > 0 && !prodPrice) {
+      const first = Object.values(variantPrices)[0] ?? 0;
+      base = first;
+    }
+
     const item: TemplateItem = {
       id: editingProd?.id ?? generateId(),
       name: prodName.trim(),
       unit: prodUnit,
       priceStatus: prodPriceStatus,
-      basePrice: prodPriceStatus === 'bonus' ? 0 : parseFloat(prodPrice),
+      basePrice: base,
       variants,
+      variantPrices,
       isActive: true,
     };
     if (editingProd) updateTemplate(item); else addTemplate(item);
@@ -189,10 +227,20 @@ export default function TemplatesScreen() {
               <View style={[styles.itemRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.itemName, { color: colors.foreground }]}>{item.name}</Text>
-                  <Text style={[styles.itemSub, { color: colors.mutedForeground }]}>
-                    {item.unit} · {item.priceStatus === 'bonus' ? 'Bepul' : item.basePrice.toLocaleString() + " so'm"}
-                    {item.variants.length > 0 ? ` · ${item.variants.join(', ')}` : ''}
-                  </Text>
+                  {item.priceStatus === 'bonus' ? (
+                    <Text style={[styles.itemSub, { color: colors.success }]}>Bepul · {item.unit}</Text>
+                  ) : item.variants.length > 0 ? (
+                    <Text style={[styles.itemSub, { color: colors.mutedForeground }]}>
+                      {item.unit} · {item.variants.map((v) => {
+                        const vp = (item.variantPrices ?? {})[v];
+                        return vp != null ? `${v}: ${vp.toLocaleString()}` : v;
+                      }).join(' | ')}
+                    </Text>
+                  ) : (
+                    <Text style={[styles.itemSub, { color: colors.mutedForeground }]}>
+                      {item.unit} · {item.basePrice.toLocaleString()} so'm
+                    </Text>
+                  )}
                 </View>
                 <TouchableOpacity onPress={() => openEditProd(item)} style={styles.iconBtn}>
                   <Feather name="edit-2" size={14} color={colors.primary} />
@@ -247,29 +295,87 @@ export default function TemplatesScreen() {
 
       {/* Product modal */}
       <Modal visible={showProdModal} transparent animationType="slide">
-        <Pressable style={styles.backdrop} onPress={() => setShowProdModal(false)} />
-        <View style={[styles.modal, { backgroundColor: colors.card, paddingBottom: insets.bottom + 20 }]}>
-          <View style={[styles.modalHandle, { backgroundColor: colors.border }]} />
-          <Text style={[styles.modalTitle, { color: colors.foreground }]}>{editingProd ? "Tahrirlash" : "Yangi mahsulot"}</Text>
-          <TextInput style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.foreground }]} placeholder="Nomi" placeholderTextColor={colors.mutedForeground} value={prodName} onChangeText={setProdName} />
-          <View style={styles.chipRow}>
-            {(['dona', 'kg', 'gr'] as const).map((u) => (
-              <TouchableOpacity key={u} style={[styles.chip, { borderColor: colors.border }, prodUnit === u && { backgroundColor: colors.primary, borderColor: colors.primary }]} onPress={() => setProdUnit(u)}>
-                <Text style={[{ color: colors.foreground, fontFamily: 'Inter_500Medium', fontSize: 13 }, prodUnit === u && { color: '#fff' }]}>{u}</Text>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <Pressable style={styles.backdrop} onPress={() => setShowProdModal(false)} />
+          <View style={[styles.modal, { backgroundColor: colors.card, paddingBottom: Math.max(insets.bottom + 20, 40) }]}>
+            <View style={[styles.modalHandle, { backgroundColor: colors.border }]} />
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              <Text style={[styles.modalTitle, { color: colors.foreground, marginBottom: 12 }]}>
+                {editingProd ? "Tahrirlash" : "Yangi mahsulot"}
+              </Text>
+
+              {/* Name */}
+              <TextInput
+                style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.foreground }]}
+                placeholder="Nomi"
+                placeholderTextColor={colors.mutedForeground}
+                value={prodName}
+                onChangeText={setProdName}
+              />
+
+              {/* Unit + price status chips */}
+              <View style={[styles.chipRow, { marginBottom: 12 }]}>
+                {(['dona', 'kg', 'gr'] as const).map((u) => (
+                  <TouchableOpacity key={u} style={[styles.chip, { borderColor: colors.border }, prodUnit === u && { backgroundColor: colors.primary, borderColor: colors.primary }]} onPress={() => setProdUnit(u)}>
+                    <Text style={[{ color: colors.foreground, fontFamily: 'Inter_500Medium', fontSize: 13 }, prodUnit === u && { color: '#fff' }]}>{u}</Text>
+                  </TouchableOpacity>
+                ))}
+                {(['pullik', 'bonus'] as const).map((p) => (
+                  <TouchableOpacity key={p} style={[styles.chip, { borderColor: colors.border }, prodPriceStatus === p && { backgroundColor: colors.primary, borderColor: colors.primary }]} onPress={() => setProdPriceStatus(p)}>
+                    <Text style={[{ color: colors.foreground, fontFamily: 'Inter_500Medium', fontSize: 13 }, prodPriceStatus === p && { color: '#fff' }]}>{p === 'pullik' ? 'Pullik' : 'Bonus'}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Base price — only when no variants or bonus */}
+              {prodPriceStatus === 'pullik' && (
+                <TextInput
+                  style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.foreground, marginBottom: 12 }]}
+                  placeholder={variantList.length > 0 ? "Asosiy narx (bo'sh qoldirsa bo'ladi)" : "Narx (so'm)"}
+                  placeholderTextColor={colors.mutedForeground}
+                  value={prodPrice}
+                  onChangeText={setProdPrice}
+                  keyboardType="numeric"
+                />
+              )}
+
+              {/* Variants comma-separated */}
+              <TextInput
+                style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.foreground, marginBottom: 4 }]}
+                placeholder="Turlar (vergul bilan: Katta, Kichik)"
+                placeholderTextColor={colors.mutedForeground}
+                value={prodVariants}
+                onChangeText={setProdVariants}
+              />
+
+              {/* Per-variant price inputs */}
+              {prodPriceStatus === 'pullik' && variantList.length > 0 && (
+                <View style={[styles.variantPriceBox, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+                  <Text style={[styles.vpLabel, { color: colors.mutedForeground }]}>Har tur uchun narx (so'm)</Text>
+                  {variantList.map((v) => (
+                    <View key={v} style={styles.vpRow}>
+                      <Text style={[styles.vpName, { color: colors.foreground }]}>{v}</Text>
+                      <TextInput
+                        style={[styles.vpInput, { borderColor: colors.border, backgroundColor: colors.background, color: colors.foreground }]}
+                        placeholder="Narx"
+                        placeholderTextColor={colors.mutedForeground}
+                        value={prodVariantPrices[v] ?? ''}
+                        onChangeText={(val) =>
+                          setProdVariantPrices((prev) => ({ ...prev, [v]: val }))
+                        }
+                        keyboardType="numeric"
+                      />
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              <TouchableOpacity style={[styles.confirmBtn, { backgroundColor: colors.primary, marginTop: 16 }]} onPress={saveProd}>
+                <Text style={styles.confirmText}>Saqlash</Text>
               </TouchableOpacity>
-            ))}
-            {(['pullik', 'bonus'] as const).map((p) => (
-              <TouchableOpacity key={p} style={[styles.chip, { borderColor: colors.border }, prodPriceStatus === p && { backgroundColor: colors.primary, borderColor: colors.primary }]} onPress={() => setProdPriceStatus(p)}>
-                <Text style={[{ color: colors.foreground, fontFamily: 'Inter_500Medium', fontSize: 13 }, prodPriceStatus === p && { color: '#fff' }]}>{p === 'pullik' ? 'Pullik' : 'Bonus'}</Text>
-              </TouchableOpacity>
-            ))}
+            </ScrollView>
           </View>
-          {prodPriceStatus === 'pullik' && <TextInput style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.foreground }]} placeholder="Narx (so'm)" placeholderTextColor={colors.mutedForeground} value={prodPrice} onChangeText={setProdPrice} keyboardType="numeric" />}
-          <TextInput style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.foreground }]} placeholder="Turlar (vergul bilan)" placeholderTextColor={colors.mutedForeground} value={prodVariants} onChangeText={setProdVariants} />
-          <TouchableOpacity style={[styles.confirmBtn, { backgroundColor: colors.primary }]} onPress={saveProd}>
-            <Text style={styles.confirmText}>Saqlash</Text>
-          </TouchableOpacity>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -284,10 +390,10 @@ const styles = StyleSheet.create({
   addBtnText: { color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 },
   itemRow: { flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 12, borderWidth: 1, padding: 12 },
   locDot: { width: 8, height: 8, borderRadius: 4 },
-  itemName: { flex: 1, fontSize: 14, fontFamily: 'Inter_600SemiBold' },
+  itemName: { fontSize: 14, fontFamily: 'Inter_600SemiBold' },
   itemSub: { fontSize: 11, fontFamily: 'Inter_400Regular', marginTop: 2 },
   busyTag: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
-  iconBtn: { padding: 4 },
+  iconBtn: { padding: 6 },
   editRow: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 12, borderWidth: 1, padding: 10 },
   editInput: { flex: 1, fontSize: 14, fontFamily: 'Inter_400Regular', borderBottomWidth: 1, paddingVertical: 4 },
   editSave: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
@@ -299,12 +405,17 @@ const styles = StyleSheet.create({
   saveBtn: { borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
   saveBtnText: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 16 },
   backdrop: { flex: 1 },
-  modal: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingTop: 12, gap: 12 },
-  modalHandle: { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 8 },
+  modal: { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingTop: 12, maxHeight: '90%' },
+  modalHandle: { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 12 },
   modalTitle: { fontSize: 20, fontFamily: 'Inter_700Bold' },
-  input: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, fontFamily: 'Inter_400Regular' },
+  input: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, fontFamily: 'Inter_400Regular', marginBottom: 12 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1 },
-  confirmBtn: { borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 4 },
+  confirmBtn: { borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
   confirmText: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 16 },
+  variantPriceBox: { borderRadius: 12, borderWidth: 1, padding: 12, gap: 10, marginTop: 4 },
+  vpLabel: { fontSize: 11, fontFamily: 'Inter_600SemiBold', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 },
+  vpRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  vpName: { flex: 1, fontSize: 14, fontFamily: 'Inter_600SemiBold' },
+  vpInput: { width: 110, borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, fontFamily: 'Inter_400Regular', textAlign: 'right' },
 });

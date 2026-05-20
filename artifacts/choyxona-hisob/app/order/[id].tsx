@@ -166,13 +166,20 @@ export default function OrderScreen() {
     setModalQty(getStep(t.unit));
   }
 
+  function getEffectivePrice(t: TemplateItem, variant: string): number {
+    if (t.priceStatus === 'bonus') return 0;
+    const vp = (t.variantPrices ?? {})[variant];
+    return vp != null ? vp : t.basePrice;
+  }
+
   function confirmAdd() {
     if (!selectedTemplate) return;
     if (modalQty <= 0) {
       Alert.alert('Xato', "Miqdorni kiriting");
       return;
     }
-    const subtotal = calcOrderItemSubtotal(selectedTemplate.unit, modalQty, selectedTemplate.basePrice);
+    const unitPrice = getEffectivePrice(selectedTemplate, selectedVariant);
+    const subtotal = calcOrderItemSubtotal(selectedTemplate.unit, modalQty, unitPrice);
     const item: OrderItem = {
       id: generateId(),
       templateId: selectedTemplate.id,
@@ -180,7 +187,7 @@ export default function OrderScreen() {
       variant: selectedVariant || undefined,
       unit: selectedTemplate.unit,
       qtyOrWeight: modalQty,
-      unitPrice: selectedTemplate.basePrice,
+      unitPrice,
       subtotal,
       isFree: selectedTemplate.priceStatus === 'bonus',
       isDelivered: false,
@@ -440,7 +447,7 @@ export default function OrderScreen() {
                   <View style={[styles.pricePreview, { backgroundColor: colors.secondary }]}>
                     <Feather name="tag" size={14} color={colors.primary} />
                     <Text style={[styles.pricePreviewText, { color: colors.foreground }]}>
-                      {formatMoney(calcOrderItemSubtotal(selectedTemplate.unit, modalQty, selectedTemplate.basePrice))}
+                      {formatMoney(calcOrderItemSubtotal(selectedTemplate.unit, modalQty, getEffectivePrice(selectedTemplate, selectedVariant)))}
                     </Text>
                   </View>
                 )}
