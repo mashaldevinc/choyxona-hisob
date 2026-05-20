@@ -45,7 +45,7 @@ function urgencyColor(startStr: string, now: Date, colors: ReturnType<typeof use
 interface SessionAlert {
   session: GuestSession;
   undeliveredItems: OrderItem[];
-  isUnchecked: boolean;
+  isSpecialStatus: boolean; // nosoz or bron
 }
 
 export default function ActiveScreen() {
@@ -54,21 +54,19 @@ export default function ActiveScreen() {
   const { sessions, orders } = useApp();
   const now = useNow();
 
+  // Only show alerts when: undelivered items exist OR location is nosoz/bron
   const alerts: SessionAlert[] = sessions
     .filter((s) => s.status === 'active')
     .map((session) => {
       const sessionOrders = orders[session.id] ?? [];
       const undeliveredItems = sessionOrders.filter((o) => !o.isDelivered);
-      return {
-        session,
-        undeliveredItems,
-        isUnchecked: true,
-      };
+      const isSpecialStatus = session.reason === 'nosoz' || session.reason === 'bron';
+      return { session, undeliveredItems, isSpecialStatus };
     })
-    .filter((a) => a.undeliveredItems.length > 0 || a.isUnchecked);
+    .filter((a) => a.undeliveredItems.length > 0 || a.isSpecialStatus);
 
-  const unclearedCount = alerts.filter((a) => a.isUnchecked).length;
-  const undeliveredCount = alerts.reduce((s, a) => s + a.undeliveredItems.length, 0);
+  const undeliveredTotal = alerts.reduce((s, a) => s + a.undeliveredItems.length, 0);
+  const specialCount = alerts.filter((a) => a.isSpecialStatus && a.undeliveredItems.length === 0).length;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -77,7 +75,9 @@ export default function ActiveScreen() {
         <View>
           <Text style={[styles.title, { color: colors.foreground }]}>Faol Ishlar</Text>
           <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
-            Eslatmalar va kutayotgan buyurtmalar
+            {alerts.length > 0
+              ? `${alerts.length} ta eslatma bor`
+              : "Hamma narsa tartibda"}
           </Text>
         </View>
       </View>
@@ -85,17 +85,19 @@ export default function ActiveScreen() {
       {/* Summary badges */}
       {alerts.length > 0 && (
         <View style={styles.summaryRow}>
-          <View style={[styles.summaryBadge, { backgroundColor: colors.secondary }]}>
-            <Feather name="grid" size={13} color={colors.primary} />
-            <Text style={[styles.summaryText, { color: colors.foreground }]}>
-              {unclearedCount} faol stol
-            </Text>
-          </View>
-          {undeliveredCount > 0 && (
-            <View style={[styles.summaryBadge, { backgroundColor: '#FEF3C7' }]}>
+          {undeliveredTotal > 0 && (
+            <View style={[styles.summaryBadge, { backgroundColor: colors.warning + '18' }]}>
               <Feather name="clock" size={13} color={colors.warning} />
-              <Text style={[styles.summaryText, { color: '#92400E' }]}>
-                {undeliveredCount} yetkazilmagan
+              <Text style={[styles.summaryText, { color: colors.warning }]}>
+                {undeliveredTotal} yetkazilmagan mahsulot
+              </Text>
+            </View>
+          )}
+          {specialCount > 0 && (
+            <View style={[styles.summaryBadge, { backgroundColor: colors.destructive + '14' }]}>
+              <Feather name="tool" size={13} color={colors.destructive} />
+              <Text style={[styles.summaryText, { color: colors.destructive }]}>
+                {specialCount} joy nosoz/rezerv
               </Text>
             </View>
           )}
@@ -115,72 +117,97 @@ export default function ActiveScreen() {
               Hamma narsa tartibda!
             </Text>
             <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
-              Hozirda diqqat talab qiladigan faol ishlar yo'q
+              Yetkazilmagan mahsulot yoki nosoz joy yo'q
             </Text>
           </View>
         ) : (
-          alerts.map(({ session, undeliveredItems, isUnchecked }) => {
+          alerts.map(({ session, undeliveredItems, isSpecialStatus }) => {
             const elapsed = formatElapsed(session.startTime, now);
-            const urgency = urgencyColor(session.startTime, now, colors);
+            const urgency = isSpecialStatus && undeliveredItems.length === 0
+              ? colors.warning
+              : urgencyColor(session.startTime, now, colors);
             const diffMin = Math.floor((now.getTime() - new Date(session.startTime).getTime()) / 60000);
 
             return (
               <TouchableOpacity
                 key={session.id}
-                style={[styles.alertCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-                onPress={() => router.push(`/order/${session.id}`)}
+                style={[
+                  styles.alertCard,
+                  { backgroundColor: colors.card, borderColor: colors.border },
+                  isSpecialStatus && { borderColor: colors.warning + '80' },
+                ]}
+                onPress={() => session.reason !== 'nosoz' && router.push(`/order/${session.id}`)}
                 activeOpacity={0.85}
               >
                 {/* Card Header */}
                 <View style={styles.cardHeader}>
                   <View style={styles.cardLeft}>
-                    <View style={[styles.locationBadge, { backgroundColor: colors.secondary }]}>
-                      <Feather name="map-pin" size={12} color={colors.primary} />
+                    <View style={[
+                      styles.locationBadge,
+                      { backgroundColor: isSpecialStatus ? colors.warning + '20' : colors.secondary },
+                    ]}>
+                      <Feather
+                        name={session.reason === 'nosoz' ? 'tool' : session.reason === 'bron' ? 'bookmark' : 'map-pin'}
+                        size={12}
+                        color={isSpecialStatus ? colors.warning : colors.primary}
+                      />
                     </View>
                     <View>
                       <Text style={[styles.locationName, { color: colors.foreground }]}>
                         {session.locationName}
                       </Text>
                       <Text style={[styles.guestInfo, { color: colors.mutedForeground }]}>
-                        {session.guestCount} mehmon
+                        {session.reason === 'nosoz'
+                          ? 'Nosoz / Rezerv'
+                          : session.reason === 'bron'
+                          ? `Bron · ${session.guestCount} kishi`
+                          : `${session.guestCount} mehmon`}
                       </Text>
                     </View>
                   </View>
 
-                  {/* Timer */}
-                  <View style={[styles.timerBadge, { backgroundColor: urgency + '20', borderColor: urgency + '40' }]}>
-                    <Feather name="clock" size={11} color={urgency} />
-                    <Text style={[styles.timerText, { color: urgency }]}>{elapsed}</Text>
-                  </View>
+                  {/* Timer — only for regular sessions */}
+                  {session.reason !== 'nosoz' && (
+                    <View style={[styles.timerBadge, { backgroundColor: urgency + '20', borderColor: urgency + '40' }]}>
+                      <Feather name="clock" size={11} color={urgency} />
+                      <Text style={[styles.timerText, { color: urgency }]}>{elapsed}</Text>
+                    </View>
+                  )}
                 </View>
 
-                {/* Progress bar */}
-                <View style={[styles.progressBar, { backgroundColor: colors.muted }]}>
-                  <View
-                    style={[
-                      styles.progressFill,
-                      {
-                        backgroundColor: urgency,
-                        width: `${Math.min(100, (diffMin / 120) * 100)}%`,
-                      },
-                    ]}
-                  />
-                </View>
+                {/* Progress bar — only for regular sessions with time */}
+                {session.reason !== 'nosoz' && (
+                  <View style={[styles.progressBar, { backgroundColor: colors.muted }]}>
+                    <View
+                      style={[
+                        styles.progressFill,
+                        {
+                          backgroundColor: urgency,
+                          width: `${Math.min(100, (diffMin / 120) * 100)}%` as any,
+                        },
+                      ]}
+                    />
+                  </View>
+                )}
 
                 {/* Status tags */}
                 <View style={styles.tagsRow}>
-                  {isUnchecked && (
-                    <View style={[styles.tag, { backgroundColor: colors.secondary }]}>
-                      <Feather name="clock" size={10} color={colors.primary} />
-                      <Text style={[styles.tagText, { color: colors.primary }]}>
-                        Hisob-kitob kutilmoqda
+                  {isSpecialStatus && (
+                    <View style={[styles.tag, { backgroundColor: colors.warning + '18' }]}>
+                      <Feather
+                        name={session.reason === 'nosoz' ? 'tool' : 'bookmark'}
+                        size={10}
+                        color={colors.warning}
+                      />
+                      <Text style={[styles.tagText, { color: colors.warning }]}>
+                        {session.reason === 'nosoz' ? 'Nosoz / Yopiq' : 'Rezerv / Bron'}
                       </Text>
                     </View>
                   )}
                   {undeliveredItems.length > 0 && (
-                    <View style={[styles.tag, { backgroundColor: '#FEF3C7' }]}>
-                      <Feather name="alert-triangle" size={10} color="#D97706" />
-                      <Text style={[styles.tagText, { color: '#D97706' }]}>
+                    <View style={[styles.tag, { backgroundColor: colors.warning + '18' }]}>
+                      <Feather name="alert-triangle" size={10} color={colors.warning} />
+                      <Text style={[styles.tagText, { color: colors.warning }]}>
                         {undeliveredItems.length} mahsulot kutilmoqda
                       </Text>
                     </View>
@@ -212,14 +239,16 @@ export default function ActiveScreen() {
                   </View>
                 )}
 
-                {/* Action button */}
-                <TouchableOpacity
-                  style={[styles.actionBtn, { backgroundColor: colors.primary }]}
-                  onPress={() => router.push(`/order/${session.id}`)}
-                >
-                  <Text style={styles.actionBtnText}>Buyurtmani ko'rish</Text>
-                  <Feather name="arrow-right" size={14} color="#fff" />
-                </TouchableOpacity>
+                {/* Action button — only for non-nosoz */}
+                {session.reason !== 'nosoz' && (
+                  <TouchableOpacity
+                    style={[styles.actionBtn, { backgroundColor: colors.primary }]}
+                    onPress={() => router.push(`/order/${session.id}`)}
+                  >
+                    <Text style={styles.actionBtnText}>Buyurtmani ko'rish</Text>
+                    <Feather name="arrow-right" size={14} color="#fff" />
+                  </TouchableOpacity>
+                )}
               </TouchableOpacity>
             );
           })

@@ -4,7 +4,9 @@ import * as Haptics from 'expo-haptics';
 import React, { useState } from 'react';
 import {
   Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,6 +21,13 @@ import { useApp } from '@/context/AppContext';
 import { Installment } from '@/types';
 import { formatMoney, formatDate, formatDateTime, generateId, todayStr } from '@/utils/formatting';
 
+const QUICK_PERCENTS = [
+  { label: '25%', pct: 0.25 },
+  { label: '50%', pct: 0.5 },
+  { label: '75%', pct: 0.75 },
+  { label: "To'liq", pct: 1 },
+];
+
 export default function DebtDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useColors();
@@ -30,19 +39,33 @@ export default function DebtDetailScreen() {
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
 
+  function openModal() {
+    setAmount('');
+    setNote('');
+    setShowModal(true);
+  }
+
+  function applyPercent(pct: number) {
+    if (!debt) return;
+    const val = Math.round(debt.remainingAmount * pct);
+    setAmount(String(val));
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }
+
   function handleAdd() {
     const amt = parseFloat(amount);
     if (isNaN(amt) || amt <= 0) { Alert.alert('Xato', "Summa kiriting"); return; }
     if (!debt) return;
-    if (amt > debt.remainingAmount) {
+    if (amt > debt.remainingAmount + 0.5) {
       Alert.alert('Xato', `Qoldiq qarzdan oshib ketdi (${formatMoney(debt.remainingAmount)})`);
       return;
     }
-    const balanceAfter = debt.remainingAmount - amt;
+    const finalAmt = Math.min(amt, debt.remainingAmount);
+    const balanceAfter = Math.max(0, debt.remainingAmount - finalAmt);
     const installment: Installment = {
       id: generateId(),
       date: todayStr(),
-      amount: amt,
+      amount: finalAmt,
       note: note.trim() || undefined,
       balanceAfter,
     };
@@ -65,16 +88,19 @@ export default function DebtDetailScreen() {
   const statusColor = debt.status === 'tolangan' ? colors.success : debt.status === 'qisman' ? colors.warning : colors.destructive;
   const statusLabel = debt.status === 'tolangan' ? "To'langan" : debt.status === 'qisman' ? "Qisman to'langan" : "To'lanmagan";
 
+  const amtNum = parseFloat(amount);
+  const isValidAmt = !isNaN(amtNum) && amtNum > 0 && amtNum <= debt.remainingAmount + 0.5;
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 100 }}>
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 120 }}>
         {/* Summary card */}
         <View style={[styles.summaryCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.nameRow}>
             <View style={[styles.avatar, { backgroundColor: colors.secondary }]}>
               <Feather name="user" size={20} color={colors.primary} />
             </View>
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={[styles.debtorName, { color: colors.foreground }]}>{debt.debtorName}</Text>
               <Text style={[styles.debtDate, { color: colors.mutedForeground }]}>{formatDate(debt.createdAt)}</Text>
             </View>
@@ -83,13 +109,15 @@ export default function DebtDetailScreen() {
             </View>
           </View>
 
+          {/* Progress */}
           <View style={[styles.progressBg, { backgroundColor: colors.muted }]}>
-            <View style={[styles.progressFill, { width: `${paidPercent * 100}%`, backgroundColor: statusColor }]} />
+            <View style={[styles.progressFill, { width: `${paidPercent * 100}%` as any, backgroundColor: statusColor }]} />
           </View>
           <Text style={[styles.progressPct, { color: colors.mutedForeground }]}>
             {(paidPercent * 100).toFixed(0)}% to'langan
           </Text>
 
+          {/* Amounts */}
           <View style={styles.amountsRow}>
             <View style={styles.amtItem}>
               <Text style={[styles.amtLabel, { color: colors.mutedForeground }]}>Jami qarz</Text>
@@ -117,6 +145,7 @@ export default function DebtDetailScreen() {
         <Text style={[styles.sectionTitle, { color: colors.foreground }]}>To'lov tarixi</Text>
         {debt.installments.length === 0 ? (
           <View style={[styles.emptyPayments, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Feather name="inbox" size={24} color={colors.mutedForeground} />
             <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>Hali to'lov qilinmagan</Text>
           </View>
         ) : (
@@ -139,43 +168,110 @@ export default function DebtDetailScreen() {
         )}
       </ScrollView>
 
+      {/* Footer */}
       {debt.status !== 'tolangan' && (
         <View style={[styles.footer, { backgroundColor: colors.background, borderTopColor: colors.border, paddingBottom: insets.bottom + 12 }]}>
-          <TouchableOpacity style={[styles.payBtn, { backgroundColor: colors.primary }]} onPress={() => setShowModal(true)}>
+          <View style={styles.footerInfo}>
+            <Text style={[styles.footerLabel, { color: colors.mutedForeground }]}>Qoldiq qarz:</Text>
+            <Text style={[styles.footerAmount, { color: colors.destructive }]}>{formatMoney(debt.remainingAmount)}</Text>
+          </View>
+          <TouchableOpacity style={[styles.payBtn, { backgroundColor: colors.primary }]} onPress={openModal}>
             <Feather name="plus" size={18} color="#fff" />
             <Text style={styles.payBtnText}>To'lov qo'shish</Text>
           </TouchableOpacity>
         </View>
       )}
 
+      {/* Payment Modal */}
       <Modal visible={showModal} transparent animationType="slide">
-        <Pressable style={styles.backdrop} onPress={() => setShowModal(false)} />
-        <View style={[styles.modal, { backgroundColor: colors.card, paddingBottom: insets.bottom + 20 }]}>
-          <View style={[styles.modalHandle, { backgroundColor: colors.border }]} />
-          <Text style={[styles.modalTitle, { color: colors.foreground }]}>To'lov qo'shish</Text>
-          <Text style={[styles.modalSub, { color: colors.mutedForeground }]}>
-            Qoldiq: {formatMoney(debt.remainingAmount)}
-          </Text>
-          <TextInput
-            style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.foreground }]}
-            placeholder="To'lov summasi (so'm)"
-            placeholderTextColor={colors.mutedForeground}
-            value={amount}
-            onChangeText={setAmount}
-            keyboardType="numeric"
-            autoFocus
-          />
-          <TextInput
-            style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.foreground }]}
-            placeholder="Izoh (ixtiyoriy)"
-            placeholderTextColor={colors.mutedForeground}
-            value={note}
-            onChangeText={setNote}
-          />
-          <TouchableOpacity style={[styles.confirmBtn, { backgroundColor: colors.primary }]} onPress={handleAdd}>
-            <Text style={styles.confirmText}>Saqlash</Text>
-          </TouchableOpacity>
-        </View>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <Pressable style={styles.backdrop} onPress={() => setShowModal(false)} />
+          <View style={[styles.modal, { backgroundColor: colors.card, paddingBottom: Math.max(insets.bottom + 20, 36) }]}>
+            <View style={[styles.modalHandle, { backgroundColor: colors.border }]} />
+
+            {/* Header */}
+            <Text style={[styles.modalTitle, { color: colors.foreground }]}>To'lov qo'shish</Text>
+            <View style={[styles.remainingRow, { backgroundColor: colors.secondary }]}>
+              <Feather name="alert-circle" size={14} color={colors.primary} />
+              <Text style={[styles.remainingLabel, { color: colors.mutedForeground }]}>Qoldiq qarz:</Text>
+              <Text style={[styles.remainingAmt, { color: colors.destructive }]}>{formatMoney(debt.remainingAmount)}</Text>
+            </View>
+
+            {/* Quick percent buttons */}
+            <View>
+              <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Tezkor miqdor</Text>
+              <View style={styles.percentRow}>
+                {QUICK_PERCENTS.map((p) => (
+                  <TouchableOpacity
+                    key={p.label}
+                    style={[
+                      styles.percentChip,
+                      { borderColor: colors.border, backgroundColor: colors.background },
+                      p.pct === 1 && { backgroundColor: colors.primary, borderColor: colors.primary },
+                    ]}
+                    onPress={() => applyPercent(p.pct)}
+                  >
+                    <Text style={[
+                      styles.percentText,
+                      { color: p.pct === 1 ? '#fff' : colors.foreground },
+                    ]}>
+                      {p.label}
+                    </Text>
+                    {p.pct < 1 && (
+                      <Text style={[styles.percentAmt, { color: colors.mutedForeground }]}>
+                        {formatMoney(Math.round(debt.remainingAmount * p.pct))}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* Manual amount input */}
+            <View>
+              <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Summa (so'm)</Text>
+              <View style={[styles.amtInputRow, { borderColor: isValidAmt ? colors.primary : colors.border, backgroundColor: colors.background }]}>
+                <TextInput
+                  style={[styles.amtInput, { color: colors.foreground }]}
+                  placeholder="0"
+                  placeholderTextColor={colors.mutedForeground}
+                  value={amount}
+                  onChangeText={setAmount}
+                  keyboardType="numeric"
+                  autoFocus
+                />
+                {amount !== '' && (
+                  <TouchableOpacity onPress={() => setAmount('')} style={styles.clearBtn}>
+                    <Feather name="x" size={14} color={colors.mutedForeground} />
+                  </TouchableOpacity>
+                )}
+              </View>
+              {isValidAmt && (
+                <Text style={[styles.changeHint, { color: colors.success }]}>
+                  To'lovdan keyin qoladi: {formatMoney(Math.max(0, debt.remainingAmount - amtNum))}
+                </Text>
+              )}
+            </View>
+
+            {/* Note */}
+            <TextInput
+              style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.foreground }]}
+              placeholder="Izoh (ixtiyoriy)"
+              placeholderTextColor={colors.mutedForeground}
+              value={note}
+              onChangeText={setNote}
+            />
+
+            <TouchableOpacity
+              style={[styles.confirmBtn, { backgroundColor: colors.primary }, !isValidAmt && { opacity: 0.5 }]}
+              onPress={handleAdd}
+              disabled={!isValidAmt}
+            >
+              <Feather name="check" size={16} color="#fff" />
+              <Text style={styles.confirmText}>To'lovni tasdiqlash</Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -188,10 +284,10 @@ const styles = StyleSheet.create({
   avatar: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   debtorName: { fontSize: 18, fontFamily: 'Inter_700Bold' },
   debtDate: { fontSize: 12, fontFamily: 'Inter_400Regular', marginTop: 1 },
-  statusBadge: { marginLeft: 'auto', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
+  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
   statusText: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
-  progressBg: { height: 8, borderRadius: 4, overflow: 'hidden' },
-  progressFill: { height: '100%', borderRadius: 4 },
+  progressBg: { height: 10, borderRadius: 5, overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 5 },
   progressPct: { fontSize: 11, fontFamily: 'Inter_400Regular', textAlign: 'right' },
   amountsRow: { flexDirection: 'row', justifyContent: 'space-between' },
   amtItem: {},
@@ -200,7 +296,7 @@ const styles = StyleSheet.create({
   noteBox: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 10, borderRadius: 8 },
   noteText: { fontSize: 12, fontFamily: 'Inter_400Regular', flex: 1 },
   sectionTitle: { fontSize: 16, fontFamily: 'Inter_700Bold' },
-  emptyPayments: { borderRadius: 12, borderWidth: 1, padding: 20, alignItems: 'center' },
+  emptyPayments: { borderRadius: 12, borderWidth: 1, padding: 24, alignItems: 'center', gap: 8 },
   emptyText: { fontSize: 13, fontFamily: 'Inter_400Regular' },
   instCard: { flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 12, borderWidth: 1, padding: 12 },
   instNum: { width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
@@ -210,15 +306,39 @@ const styles = StyleSheet.create({
   instNote: { fontSize: 11, fontFamily: 'Inter_400Regular', marginTop: 1 },
   instBalLabel: { fontSize: 10, fontFamily: 'Inter_400Regular', marginBottom: 2 },
   instBal: { fontSize: 13, fontFamily: 'Inter_600SemiBold' },
-  footer: { padding: 16, borderTopWidth: 1, position: 'absolute', bottom: 0, left: 0, right: 0 },
+  footer: { padding: 16, borderTopWidth: 1, position: 'absolute', bottom: 0, left: 0, right: 0, gap: 8 },
+  footerInfo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  footerLabel: { fontSize: 13, fontFamily: 'Inter_500Medium' },
+  footerAmount: { fontSize: 18, fontFamily: 'Inter_700Bold' },
   payBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 14, paddingVertical: 14 },
   payBtnText: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 16 },
   backdrop: { flex: 1 },
-  modal: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingTop: 12, gap: 12 },
-  modalHandle: { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 8 },
+  modal: { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingTop: 12, gap: 14 },
+  modalHandle: { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 4 },
   modalTitle: { fontSize: 20, fontFamily: 'Inter_700Bold' },
-  modalSub: { fontSize: 13, fontFamily: 'Inter_400Regular' },
+  remainingRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderRadius: 10, padding: 12,
+  },
+  remainingLabel: { fontSize: 13, fontFamily: 'Inter_500Medium', flex: 1 },
+  remainingAmt: { fontSize: 16, fontFamily: 'Inter_700Bold' },
+  fieldLabel: { fontSize: 11, fontFamily: 'Inter_600SemiBold', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
+  percentRow: { flexDirection: 'row', gap: 8 },
+  percentChip: {
+    flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  percentText: { fontSize: 13, fontFamily: 'Inter_700Bold' },
+  percentAmt: { fontSize: 10, fontFamily: 'Inter_400Regular', marginTop: 2 },
+  amtInputRow: {
+    flexDirection: 'row', alignItems: 'center',
+    borderWidth: 2, borderRadius: 12,
+    paddingHorizontal: 16, paddingVertical: 4,
+  },
+  amtInput: { flex: 1, fontSize: 26, fontFamily: 'Inter_700Bold', paddingVertical: 10 },
+  clearBtn: { padding: 6 },
+  changeHint: { fontSize: 12, fontFamily: 'Inter_500Medium', marginTop: 6 },
   input: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, fontFamily: 'Inter_400Regular' },
-  confirmBtn: { borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 4 },
+  confirmBtn: { borderRadius: 12, paddingVertical: 15, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 },
   confirmText: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 16 },
 });

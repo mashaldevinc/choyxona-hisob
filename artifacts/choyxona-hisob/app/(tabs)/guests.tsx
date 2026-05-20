@@ -8,9 +8,9 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -18,14 +18,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { useApp } from '@/context/AppContext';
 import { GuestSession, LocationItem } from '@/types';
-import { generateId, formatTime, todayStr } from '@/utils/formatting';
-import { formatMoney } from '@/utils/formatting';
+import { generateId, formatTime, todayStr, formatMoney } from '@/utils/formatting';
 
 const REASONS = [
   { key: 'mehmon', label: 'Mehmon keldi' },
   { key: 'bron', label: 'Bron qilingan' },
   { key: 'nosoz', label: 'Nosoz / Rezerv' },
 ] as const;
+
+const GUEST_QUICK = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15];
 
 export default function GuestsScreen() {
   const colors = useColors();
@@ -34,15 +35,19 @@ export default function GuestsScreen() {
   const [showModal, setShowModal] = useState(false);
   const [selectedLocId, setSelectedLocId] = useState('');
   const [reason, setReason] = useState<'mehmon' | 'bron' | 'nosoz'>('mehmon');
-  const [guestCount, setGuestCount] = useState('1');
+  const [guestCount, setGuestCount] = useState(2);
 
   const activeSessions = sessions.filter((s) => s.status === 'active');
   const freeLocations = locations.filter((l) => l.isActive && !l.isBusy);
 
+  function adjustCount(delta: number) {
+    setGuestCount((prev) => Math.max(1, Math.min(99, prev + delta)));
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }
+
   function handleBand() {
     if (!selectedLocId) { Alert.alert('Xato', 'Joy tanlang'); return; }
-    const gc = parseInt(guestCount, 10);
-    if ((reason === 'mehmon' || reason === 'bron') && (isNaN(gc) || gc <= 0)) {
+    if ((reason === 'mehmon' || reason === 'bron') && guestCount <= 0) {
       Alert.alert('Xato', "Mehmonlar sonini kiriting");
       return;
     }
@@ -52,16 +57,16 @@ export default function GuestsScreen() {
       id: generateId(),
       locationId: selectedLocId,
       locationName: loc.displayName,
-      guestCount: reason === 'nosoz' ? 0 : gc,
+      guestCount: reason === 'nosoz' ? 0 : guestCount,
       reason,
       status: 'active',
-      startTime: todayStr(),
+      startTime: new Date().toISOString(),
     };
     openSession(session);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setShowModal(false);
     setSelectedLocId('');
-    setGuestCount('1');
+    setGuestCount(2);
     setReason('mehmon');
   }
 
@@ -112,21 +117,37 @@ export default function GuestsScreen() {
           const undel = undeliveredCount(item.id);
           const total = sessionOrderTotal(item.id);
           const svcTotal = item.guestCount * (profile?.servicePrice ?? 0);
+          const isSpecial = item.reason === 'nosoz' || item.reason === 'bron';
           return (
             <TouchableOpacity
-              style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}
-              onPress={() => router.push(`/order/${item.id}`)}
+              style={[
+                styles.card,
+                { backgroundColor: colors.card, borderColor: colors.border },
+                isSpecial && { borderColor: colors.warning },
+              ]}
+              onPress={() => item.reason !== 'nosoz' && router.push(`/order/${item.id}`)}
               activeOpacity={0.85}
             >
               <View style={styles.cardTop}>
                 <View style={styles.cardLeft}>
-                  <View style={[styles.locIcon, { backgroundColor: colors.secondary }]}>
-                    <Feather name="map-pin" size={14} color={colors.primary} />
+                  <View style={[
+                    styles.locIcon,
+                    { backgroundColor: isSpecial ? colors.warning + '20' : colors.secondary },
+                  ]}>
+                    <Feather
+                      name={item.reason === 'nosoz' ? 'tool' : item.reason === 'bron' ? 'bookmark' : 'map-pin'}
+                      size={14}
+                      color={isSpecial ? colors.warning : colors.primary}
+                    />
                   </View>
                   <View>
                     <Text style={[styles.locName, { color: colors.foreground }]}>{item.locationName}</Text>
                     <Text style={[styles.locSub, { color: colors.mutedForeground }]}>
-                      {item.guestCount} mehmon · {formatTime(item.startTime)}
+                      {item.reason === 'nosoz'
+                        ? 'Nosoz / Rezerv'
+                        : item.reason === 'bron'
+                        ? `Bron · ${item.guestCount} kishi`
+                        : `${item.guestCount} mehmon · ${formatTime(item.startTime)}`}
                     </Text>
                   </View>
                 </View>
@@ -137,22 +158,27 @@ export default function GuestsScreen() {
                   </View>
                 )}
               </View>
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
-              <View style={styles.cardBottom}>
-                <View>
-                  <Text style={[styles.totalLabel, { color: colors.mutedForeground }]}>Hozirgi hisob</Text>
-                  <Text style={[styles.totalValue, { color: colors.foreground }]}>
-                    {formatMoney(total + svcTotal)}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={[styles.openBtn, { backgroundColor: colors.primary }]}
-                  onPress={() => router.push(`/order/${item.id}`)}
-                >
-                  <Text style={styles.openBtnText}>Hisob ochish</Text>
-                  <Feather name="arrow-right" size={14} color="#fff" />
-                </TouchableOpacity>
-              </View>
+
+              {item.reason !== 'nosoz' && (
+                <>
+                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
+                  <View style={styles.cardBottom}>
+                    <View>
+                      <Text style={[styles.totalLabel, { color: colors.mutedForeground }]}>Hozirgi hisob</Text>
+                      <Text style={[styles.totalValue, { color: colors.foreground }]}>
+                        {formatMoney(total + svcTotal)}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={[styles.openBtn, { backgroundColor: colors.primary }]}
+                      onPress={() => router.push(`/order/${item.id}`)}
+                    >
+                      <Text style={styles.openBtnText}>Hisob ochish</Text>
+                      <Feather name="arrow-right" size={14} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
             </TouchableOpacity>
           );
         }}
@@ -161,73 +187,109 @@ export default function GuestsScreen() {
       {/* Bandlashtirish Modal */}
       <Modal visible={showModal} transparent animationType="slide">
         <Pressable style={styles.backdrop} onPress={() => setShowModal(false)} />
-        <View style={[styles.modal, { backgroundColor: colors.card, paddingBottom: insets.bottom + 20 }]}>
+        <View style={[styles.modal, { backgroundColor: colors.card, paddingBottom: Math.max(insets.bottom + 20, 36) }]}>
           <View style={[styles.modalHandle, { backgroundColor: colors.border }]} />
           <Text style={[styles.modalTitle, { color: colors.foreground }]}>Bandlashtirish</Text>
 
-          <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Joy tanlang</Text>
-          <View style={styles.locGrid}>
-            {freeLocations.map((loc) => (
-              <TouchableOpacity
-                key={loc.id}
-                style={[
-                  styles.locChip,
-                  { borderColor: colors.border, backgroundColor: colors.background },
-                  selectedLocId === loc.id && { backgroundColor: colors.primary, borderColor: colors.primary },
-                ]}
-                onPress={() => setSelectedLocId(loc.id)}
-              >
-                <Text style={[styles.locChipText, { color: colors.foreground }, selectedLocId === loc.id && { color: '#fff' }]}>
-                  {loc.displayName}
-                </Text>
-              </TouchableOpacity>
-            ))}
-            {freeLocations.length === 0 && (
-              <Text style={[styles.noLocText, { color: colors.mutedForeground }]}>
-                Barcha joylar band
-              </Text>
+          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            {/* Location picker */}
+            <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Joy tanlang</Text>
+            <View style={[styles.locGrid, { marginBottom: 14 }]}>
+              {freeLocations.map((loc) => (
+                <TouchableOpacity
+                  key={loc.id}
+                  style={[
+                    styles.locChip,
+                    { borderColor: colors.border, backgroundColor: colors.background },
+                    selectedLocId === loc.id && { backgroundColor: colors.primary, borderColor: colors.primary },
+                  ]}
+                  onPress={() => { setSelectedLocId(loc.id); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                >
+                  <Text style={[styles.locChipText, { color: colors.foreground }, selectedLocId === loc.id && { color: '#fff' }]}>
+                    {loc.displayName}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              {freeLocations.length === 0 && (
+                <Text style={[styles.noLocText, { color: colors.mutedForeground }]}>Barcha joylar band</Text>
+              )}
+            </View>
+
+            {/* Reason */}
+            <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Sabab</Text>
+            <View style={[styles.reasonRow, { marginBottom: 14 }]}>
+              {REASONS.map((r) => (
+                <TouchableOpacity
+                  key={r.key}
+                  style={[
+                    styles.reasonChip,
+                    { borderColor: colors.border, backgroundColor: colors.background },
+                    reason === r.key && { backgroundColor: colors.primary, borderColor: colors.primary },
+                  ]}
+                  onPress={() => { setReason(r.key); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                >
+                  <Text style={[styles.reasonText, { color: colors.foreground }, reason === r.key && { color: '#fff' }]}>
+                    {r.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Guest count — only for mehmon/bron */}
+            {(reason === 'mehmon' || reason === 'bron') && (
+              <View>
+                <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Mehmonlar soni</Text>
+
+                {/* +/- stepper */}
+                <View style={[styles.stepperRow, { marginBottom: 12 }]}>
+                  <TouchableOpacity
+                    style={[styles.stepBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}
+                    onPress={() => adjustCount(-1)}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Feather name="minus" size={18} color={colors.foreground} />
+                  </TouchableOpacity>
+                  <View style={[styles.countBox, { borderColor: colors.primary, backgroundColor: colors.background }]}>
+                    <Text style={[styles.countText, { color: colors.foreground }]}>{guestCount}</Text>
+                    <Text style={[styles.countUnit, { color: colors.mutedForeground }]}>kishi</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.stepBtn, { backgroundColor: colors.primary }]}
+                    onPress={() => adjustCount(1)}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Feather name="plus" size={18} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Quick number grid 1-15 */}
+                <View style={styles.quickNumGrid}>
+                  {GUEST_QUICK.map((n) => (
+                    <TouchableOpacity
+                      key={n}
+                      style={[
+                        styles.numChip,
+                        { borderColor: colors.border, backgroundColor: colors.background },
+                        guestCount === n && { backgroundColor: colors.primary, borderColor: colors.primary },
+                      ]}
+                      onPress={() => { setGuestCount(n); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                    >
+                      <Text style={[styles.numChipText, { color: guestCount === n ? '#fff' : colors.foreground }]}>
+                        {n}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
             )}
-          </View>
 
-          <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Sabab</Text>
-          <View style={styles.reasonRow}>
-            {REASONS.map((r) => (
-              <TouchableOpacity
-                key={r.key}
-                style={[
-                  styles.reasonChip,
-                  { borderColor: colors.border, backgroundColor: colors.background },
-                  reason === r.key && { backgroundColor: colors.primary, borderColor: colors.primary },
-                ]}
-                onPress={() => setReason(r.key)}
-              >
-                <Text style={[styles.reasonText, { color: colors.foreground }, reason === r.key && { color: '#fff' }]}>
-                  {r.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {(reason === 'mehmon' || reason === 'bron') && (
-            <>
-              <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Mehmonlar soni</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
-                value={guestCount}
-                onChangeText={setGuestCount}
-                keyboardType="numeric"
-                placeholder="Sonini kiriting"
-                placeholderTextColor={colors.mutedForeground}
-              />
-            </>
-          )}
-
-          <TouchableOpacity
-            style={[styles.confirmBtn, { backgroundColor: colors.primary }]}
-            onPress={handleBand}
-          >
-            <Text style={styles.confirmBtnText}>Bandlashtirish</Text>
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.confirmBtn, { backgroundColor: colors.primary, marginTop: 16 }]}
+              onPress={handleBand}
+            >
+              <Text style={styles.confirmBtnText}>Bandlashtirish</Text>
+            </TouchableOpacity>
+          </ScrollView>
         </View>
       </Modal>
     </View>
@@ -272,31 +334,34 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 20, fontFamily: 'Inter_700Bold', marginBottom: 8 },
   emptyText: { fontSize: 14, fontFamily: 'Inter_400Regular', textAlign: 'center', paddingHorizontal: 40 },
   backdrop: { flex: 1 },
-  modal: {
-    borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    padding: 24, paddingTop: 12, gap: 12,
-  },
-  modalHandle: { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 8 },
-  modalTitle: { fontSize: 20, fontFamily: 'Inter_700Bold', marginBottom: 4 },
-  fieldLabel: { fontSize: 12, fontFamily: 'Inter_600SemiBold', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 },
+  modal: { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingTop: 12, maxHeight: '92%' },
+  modalHandle: { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 12 },
+  modalTitle: { fontSize: 20, fontFamily: 'Inter_700Bold', marginBottom: 14 },
+  fieldLabel: { fontSize: 11, fontFamily: 'Inter_600SemiBold', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
   locGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  locChip: {
-    paddingHorizontal: 14, paddingVertical: 8,
-    borderRadius: 10, borderWidth: 1,
-  },
+  locChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, borderWidth: 1 },
   locChipText: { fontSize: 13, fontFamily: 'Inter_500Medium' },
   noLocText: { fontSize: 13, fontFamily: 'Inter_400Regular' },
   reasonRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   reasonChip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, borderWidth: 1 },
   reasonText: { fontSize: 13, fontFamily: 'Inter_500Medium' },
-  input: {
-    borderWidth: 1, borderRadius: 10,
-    paddingHorizontal: 14, paddingVertical: 12,
-    fontSize: 15, fontFamily: 'Inter_400Regular',
+  stepperRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  stepBtn: {
+    width: 48, height: 48, borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center', borderWidth: 1,
   },
-  confirmBtn: {
-    borderRadius: 12, paddingVertical: 14,
-    alignItems: 'center', justifyContent: 'center', marginTop: 4,
+  countBox: {
+    flex: 1, height: 52, borderWidth: 2, borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center',
   },
+  countText: { fontSize: 28, fontFamily: 'Inter_700Bold', lineHeight: 34 },
+  countUnit: { fontSize: 11, fontFamily: 'Inter_500Medium' },
+  quickNumGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  numChip: {
+    width: 52, height: 44, borderRadius: 10, borderWidth: 1,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  numChipText: { fontSize: 16, fontFamily: 'Inter_700Bold' },
+  confirmBtn: { borderRadius: 12, paddingVertical: 14, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
   confirmBtnText: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 16 },
 });
