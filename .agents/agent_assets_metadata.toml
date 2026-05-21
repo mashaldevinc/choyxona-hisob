@@ -1,8 +1,13 @@
 uploads = []
-outputs = []
 
 [[generated]]
 id = "2AsfREOXv15iPBjU2IzO2"
 uri = "file://artifacts/choyxona-hisob/assets/images/icon.png"
 type = "image"
 title = "choyxona app icon"
+
+[[outputs]]
+id = "NZz9997aVxVfhlM-snfDm"
+uri = "file://flutter_choyxona.tar.gz"
+type = "unspecified"
+title = "Choyxona Hisob — Flutter manba kodlari"
