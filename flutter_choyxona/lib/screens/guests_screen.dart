@@ -27,8 +27,11 @@ class _GuestsScreenState extends State<GuestsScreen> {
   Widget build(BuildContext context) {
     final prov = context.watch<AppProvider>();
     final cs = Theme.of(context).colorScheme;
-    final active = prov.activeSessions;
+    final guests = prov.guestSessions;
+    final cleaning = prov.cleaningSessions;
     final freeLocs = prov.locations.where((l) => l.isActive && !l.isBusy).length;
+
+    final allItems = [...guests, ...cleaning];
 
     return Scaffold(
       backgroundColor: cs.background,
@@ -49,10 +52,16 @@ class _GuestsScreenState extends State<GuestsScreen> {
                                 fontSize: 24,
                                 fontWeight: FontWeight.w700,
                                 color: cs.onSurface)),
-                        Text('${active.length} faol · $freeLocs joy bo\'sh',
-                            style: TextStyle(
-                                fontSize: 13,
-                                color: cs.onSurface.withOpacity(0.55))),
+                        Text(
+                          [
+                            if (guests.isNotEmpty) '${guests.length} mehmon',
+                            if (cleaning.isNotEmpty) '${cleaning.length} tozalanmoqda',
+                            if (freeLocs > 0) '$freeLocs bo\'sh',
+                          ].join(' · '),
+                          style: TextStyle(
+                              fontSize: 13,
+                              color: cs.onSurface.withOpacity(0.55)),
+                        ),
                       ],
                     ),
                   ),
@@ -70,14 +79,20 @@ class _GuestsScreenState extends State<GuestsScreen> {
             ),
             // List
             Expanded(
-              child: active.isEmpty
+              child: allItems.isEmpty
                   ? _EmptyState(onTap: () => _showBandlashtirish(context))
                   : ListView.separated(
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
-                      itemCount: active.length,
+                      itemCount: allItems.length,
                       separatorBuilder: (_, __) => const SizedBox(height: 10),
                       itemBuilder: (ctx, i) {
-                        final s = active[i];
+                        final s = allItems[i];
+                        if (s.reason == 'tozalash') {
+                          return _CleaningCard(
+                            session: s,
+                            onCleaned: () => prov.markCleaned(s.id),
+                          );
+                        }
                         final total = prov.sessionBill(s.id);
                         final undel = prov
                             .getOrders(s.id)
@@ -98,6 +113,79 @@ class _GuestsScreenState extends State<GuestsScreen> {
                         );
                       },
                     ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Cleaning Card ────────────────────────────────────────────────────────────
+class _CleaningCard extends StatelessWidget {
+  final GuestSession session;
+  final VoidCallback onCleaned;
+
+  const _CleaningCard({required this.session, required this.onCleaned});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF6366F1).withOpacity(0.07),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF6366F1).withOpacity(0.35)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: const Color(0xFF6366F1).withOpacity(0.15),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.cleaning_services,
+                  size: 20, color: Color(0xFF6366F1)),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(session.locationName,
+                      style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                          color: cs.onSurface)),
+                  const Text('Dasturxon yig\'ishtirilmoqda…',
+                      style: TextStyle(
+                          fontSize: 12, color: Color(0xFF6366F1))),
+                  Text(formatElapsed(session.startTime),
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: cs.onSurface.withOpacity(0.45))),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            ElevatedButton(
+              onPressed: onCleaned,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF6366F1),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
+                textStyle: const TextStyle(
+                    fontWeight: FontWeight.w700, fontSize: 13),
+              ),
+              child: const Text('Sozlandi ✓'),
             ),
           ],
         ),

@@ -197,6 +197,39 @@ class AppProvider extends ChangeNotifier {
       status: 'closed',
       startTime: session.startTime,
     );
+    // Auto-create a cleaning session — location stays busy until staff marks it clean
+    if (session.reason != 'tozalash') {
+      final cleanSession = GuestSession(
+        id: generateId(),
+        locationId: session.locationId,
+        locationName: session.locationName,
+        guestCount: 0,
+        reason: 'tozalash',
+        status: 'active',
+        startTime: DateTime.now().toIso8601String(),
+      );
+      sessions.add(cleanSession);
+      orders[cleanSession.id] = [];
+      await _saveOrders();
+    }
+    await _saveSessions();
+    notifyListeners();
+  }
+
+  /// Staff pressed "Sozlandi" — cleaning done, free the location
+  Future<void> markCleaned(String cleaningSessionId) async {
+    final idx = sessions.indexWhere((s) => s.id == cleaningSessionId);
+    if (idx < 0) return;
+    final session = sessions[idx];
+    sessions[idx] = GuestSession(
+      id: session.id,
+      locationId: session.locationId,
+      locationName: session.locationName,
+      guestCount: 0,
+      reason: 'tozalash',
+      status: 'closed',
+      startTime: session.startTime,
+    );
     await setLocationBusy(session.locationId, false);
     await _saveSessions();
     notifyListeners();
@@ -204,6 +237,12 @@ class AppProvider extends ChangeNotifier {
 
   List<GuestSession> get activeSessions =>
       sessions.where((s) => s.status == 'active').toList();
+
+  List<GuestSession> get cleaningSessions =>
+      sessions.where((s) => s.status == 'active' && s.reason == 'tozalash').toList();
+
+  List<GuestSession> get guestSessions =>
+      sessions.where((s) => s.status == 'active' && s.reason != 'tozalash').toList();
 
   GuestSession? getSession(String id) {
     try {

@@ -14,7 +14,7 @@ class DashboardScreen extends StatelessWidget {
     final prov = context.watch<AppProvider>();
     final cs = Theme.of(context).colorScheme;
     final profile = prov.profile;
-    final active = prov.activeSessions;
+    final active = prov.guestSessions;
     final today = DateTime.now();
 
     // Today income from closed sessions
@@ -39,8 +39,11 @@ class DashboardScreen extends StatelessWidget {
       } catch (_) {}
     }
 
-    // Undelivered alerts
-    final alerts = active.where((s) {
+    final cleaning = prov.cleaningSessions;
+    final guests = prov.guestSessions;
+
+    // Undelivered alerts (guest sessions only)
+    final alerts = guests.where((s) {
       final items = prov.getOrders(s.id);
       final hasUndelivered = items.any((o) => !o.isDelivered);
       return hasUndelivered || s.reason == 'nosoz' || s.reason == 'bron';
@@ -164,6 +167,89 @@ class DashboardScreen extends StatelessWidget {
                       );
                     },
                     childCount: alerts.length,
+                  ),
+                ),
+              ),
+            ],
+
+            // Cleaning sessions alert strip
+            if (cleaning.isNotEmpty) ...[
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.cleaning_services,
+                          color: Color(0xFF6366F1), size: 18),
+                      const SizedBox(width: 6),
+                      Text('Tozalanmoqda (${cleaning.length})',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 16,
+                              color: Color(0xFF6366F1))),
+                    ],
+                  ),
+                ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                sliver: SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (ctx, i) {
+                      final s = cleaning[i];
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF6366F1).withOpacity(0.07),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                                color: const Color(0xFF6366F1).withOpacity(0.3)),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.cleaning_services,
+                                  color: Color(0xFF6366F1), size: 18),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(s.locationName,
+                                        style: TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                            color: cs.onSurface)),
+                                    Text(
+                                        'Yig\'ishtirilmoqda · ${formatElapsed(s.startTime)}',
+                                        style: const TextStyle(
+                                            fontSize: 11,
+                                            color: Color(0xFF6366F1))),
+                                  ],
+                                ),
+                              ),
+                              ElevatedButton(
+                                onPressed: () => prov.markCleaned(s.id),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF6366F1),
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 8),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10)),
+                                  textStyle: const TextStyle(
+                                      fontWeight: FontWeight.w700, fontSize: 12),
+                                ),
+                                child: const Text('Sozlandi ✓'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                    childCount: cleaning.length,
                   ),
                 ),
               ),
